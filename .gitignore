@@ -1,0 +1,8 @@
+__pycache__/
+.pytest_cache/
+.venv/
+*.py[cod]
+runs/
+data/generated/
+hadoop-jobs/target/
+.streamlit/secrets.toml
