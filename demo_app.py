@@ -205,29 +205,77 @@ def load_products() -> dict:
     with SAMPLE_PRODUCTS.open(newline="", encoding="utf-8") as f:
         return {row["product_id"].strip(): row for row in csv.DictReader(f)}
 
-results  = load_results()
-orders   = load_orders()
+def compute_analytics(order_rows: list[dict], products_dict: dict) -> dict:
+    def agg_group():
+        return {"revenue_cents": 0, "quantity": 0, "order_ids": set()}
+
+    total = agg_group()
+    by_product = defaultdict(agg_group)
+    by_category = defaultdict(agg_group)
+    by_region = defaultdict(agg_group)
+    by_month = defaultdict(agg_group)
+
+    valid_orders = []
+    for row in order_rows:
+        try:
+            qty = int(row.get("quantity", 0))
+            price_cents = round(float(row.get("unit_price", 0)) * 100)
+            rev = qty * price_cents
+            oid = str(row.get("order_id", ""))
+            pid = str(row.get("product_id", "")).strip()
+            cat = str(row.get("category", "Other")).strip()
+            reg = str(row.get("region", "Other")).strip()
+            mon = str(row.get("order_date", "2024-01"))[:7]
+            for g in [total, by_product[pid], by_category[cat], by_region[reg], by_month[mon]]:
+                g["revenue_cents"] += rev
+                g["quantity"] += qty
+                g["order_ids"].add(oid)
+            valid_orders.append(row)
+        except Exception:
+            continue
+
+    def finalize(g, key=""):
+        oc = len(g["order_ids"])
+        aov = round(g["revenue_cents"] / oc) if oc else 0
+        return {"key": key, "revenue_cents": g["revenue_cents"], "quantity": g["quantity"],
+                "order_count": oc, "average_order_value_cents": aov}
+
+    agg = {
+        "total": [finalize(total, "ALL")],
+        "category": [finalize(v, k) for k, v in by_category.items()],
+        "region": [finalize(v, k) for k, v in by_region.items()],
+        "month": [finalize(v, k) for k, v in by_month.items()],
+    }
+    rev_rank = sorted(
+        [{"product_id": pid, **finalize(data, pid)} for pid, data in by_product.items()],
+        key=lambda x: -x["revenue_cents"]
+    )
+    for i, r in enumerate(rev_rank):
+        r["rank"] = i + 1
+
+    profit_rows = []
+    total_prof = 0
+    for pid, data in by_product.items():
+        pinfo = products_dict.get(pid, {})
+        cost = pinfo.get("unit_cost") or 0.0
+        try:
+            cost_cents = round(float(cost) * 100)
+        except Exception:
+            cost_cents = 0
+        prof = data["revenue_cents"] - (data["quantity"] * cost_cents)
+        profit_rows.append({"product_id": pid, "profit_cents": prof})
+        total_prof += prof
+    profit_rows.append({"product_id": "ALL", "profit_cents": total_prof})
+
+    joins = {
+        "rows": [{"product_id": pid, "product_name": products_dict.get(pid, {}).get("product_name", pid)} for pid in by_product],
+        "profit": profit_rows,
+    }
+    return {"aggregates": agg, "rankings": {"revenue": rev_rank}, "joins": joins, "orders": valid_orders}
+
 products = load_products()
-agg      = results["aggregates"]
-total    = agg["total"][0]
-rankings = results["rankings"]
-joins    = results["joins"]
-profit_rows = joins["profit"]
-total_profit = next((r for r in profit_rows if r["product_id"] == "ALL"), None)
-total_rev_cents = total["revenue_cents"]
-
-names: dict[str, str] = {}
-for p in joins["rows"]:
-    names[p["product_id"]] = p.get("product_name") or p["product_id"]
-
-EMOJIS = {
-    "P001": "\u2615", "P002": "\U0001f9e9", "P003": "\U0001f5b1",
-    "P004": "\U0001f45c", "P005": "\U0001f4a1", "P006": "\U0001f9e6",
-    "P007": "\U0001f4d3", "P008": "\U0001f4a7", "P009": "\U0001f50c",
-    "P010": "\U0001fab4", "P011": "\U0001f4f1", "P012": "\U0001f3b2",
-}
-GREEN_PAL = ["#14532d","#15803d","#16a34a","#22c55e","#4ade80","#86efac","#bbf7d0"]
-
+is_custom_data = False
+custom_name = ""
 
 def money(cents: int) -> str:
     return f"${cents / 100:,.2f}"
@@ -255,7 +303,6 @@ def plotly_chart(fig: go.Figure, key: str = "") -> None:
 
 CHART_BASE = dict(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
 
-
 # --- Sidebar ---
 with st.sidebar:
     st.markdown("""
@@ -277,19 +324,74 @@ with st.sidebar:
     )
 
     st.markdown('<div class="nav-divider"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="nav-section">Other</div>', unsafe_allow_html=True)
-    st.markdown("""
-    <div style="padding:4px 14px;">
-      <div style="padding:9px 6px;color:#bbf7d0;font-size:.87rem;">\u2699\ufe0f  Settings</div>
-      <div style="padding:9px 6px;color:#bbf7d0;font-size:.87rem;">&#10067;  Help Center</div>
-    </div>
-    <div class="nav-divider"></div>
-    <div class="upgrade-box">
-      <div class="ub-title">\U0001f680 Hadoop Pipeline</div>
-      <div class="ub-sub">3 MapReduce jobs<br>300 rows &middot; Java 11 &middot; HDFS</div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown('<div class="nav-section">Data Ingestion</div>', unsafe_allow_html=True)
+    with st.expander("\U0001f4e4 Ingest New Orders CSV", expanded=False):
+        uploaded_file = st.file_uploader(
+            "Upload orders CSV", type=["csv"], key="custom_orders_uploader",
+            help="Upload a new orders.csv to dynamically run analytics"
+        )
+        if uploaded_file is not None:
+            try:
+                content = uploaded_file.getvalue().decode("utf-8", errors="replace")
+                custom_rows = list(csv.DictReader(io.StringIO(content)))
+                if custom_rows and ("quantity" in custom_rows[0] or "unit_price" in custom_rows[0]):
+                    computed = compute_analytics(custom_rows, products)
+                    if computed["orders"]:
+                        results = computed
+                        orders = computed["orders"]
+                        is_custom_data = True
+                        custom_name = uploaded_file.name
+                        st.success(f"\u2713 Ingested {len(orders)} orders")
+                    else:
+                        st.error("No valid numeric rows found")
+                else:
+                    st.error("Missing 'quantity' or 'unit_price' column")
+            except Exception as e:
+                st.error(f"Error parsing CSV: {e}")
 
+    st.markdown('<div class="nav-divider"></div>', unsafe_allow_html=True)
+    if is_custom_data:
+        st.markdown(f"""
+        <div class="upgrade-box" style="background: linear-gradient(135deg, #047857, #065f46);">
+          <div class="ub-title">\u26a1 Dynamic Dataset</div>
+          <div class="ub-sub">{len(orders):,} records &middot; {custom_name}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div class="upgrade-box">
+          <div class="ub-title">\U0001f680 Hadoop Pipeline</div>
+          <div class="ub-sub">3 MapReduce jobs<br>300 rows &middot; Java 11 &middot; HDFS</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+if not is_custom_data:
+    results  = load_results()
+    orders   = load_orders()
+
+agg      = results["aggregates"]
+total    = agg["total"][0]
+rankings = results["rankings"]
+joins    = results["joins"]
+profit_rows = joins["profit"]
+total_profit = next((r for r in profit_rows if r["product_id"] == "ALL"), None)
+total_rev_cents = total["revenue_cents"]
+
+names: dict[str, str] = {}
+for p in joins["rows"]:
+    names[p["product_id"]] = p.get("product_name") or p["product_id"]
+
+EMOJIS = {
+    "P001": "\u2615", "P002": "\U0001f9e9", "P003": "\U0001f5b1",
+    "P004": "\U0001f45c", "P005": "\U0001f4a1", "P006": "\U0001f9e6",
+    "P007": "\U0001f4d3", "P008": "\U0001f4a7", "P009": "\U0001f50c",
+    "P010": "\U0001fab4", "P011": "\U0001f4f1", "P012": "\U0001f3b2",
+}
+GREEN_PAL = ["#14532d","#15803d","#16a34a","#22c55e","#4ade80","#86efac","#bbf7d0"]
+
+
+if is_custom_data:
+    st.info(f"\u2728 Dynamic Ingestion Mode: Analyzing custom dataset **{custom_name}** ({len(orders):,} orders)")
 
 # =============================================================================
 # PAGE: DASHBOARD
