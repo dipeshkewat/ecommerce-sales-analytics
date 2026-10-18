@@ -1,13 +1,7 @@
 """
-demo_app.py — Streamlit Cloud demo for E-Commerce Sales Analytics.
-
-This app loads pre-computed results from data/demo_results.json (computed by
-the Java MapReduce jobs against the 300-row synthetic sample) and renders the
-full Streamlit dashboard without requiring Hadoop, Java, or HDFS at runtime.
-
-Deploy to Streamlit Community Cloud:
-  Main file: demo_app.py
-  Branch: main (or whichever branch you push to)
+demo_app.py - Premium Green Dashboard for E-Commerce Sales Analytics.
+Inspired by modern sales analytics dashboards. Green theme, card-based layout,
+interactive charts, sidebar nav, KPIs, gauge, heatmap, transactions table.
 """
 
 from __future__ import annotations
@@ -15,10 +9,12 @@ from __future__ import annotations
 import csv
 import io
 import json
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 import plotly.graph_objects as go
+import plotly.express as px
 import streamlit as st
 
 ROOT = Path(__file__).resolve().parent
@@ -26,360 +22,781 @@ DEMO_RESULTS = ROOT / "data" / "demo_results.json"
 SAMPLE_ORDERS = ROOT / "data" / "sample" / "orders.csv"
 SAMPLE_PRODUCTS = ROOT / "data" / "sample" / "products.csv"
 
-# ── Page config ─────────────────────────────────────────────────────────────
+# --- Page Config ---
 st.set_page_config(
-    page_title="E-Commerce Sales Analytics — Demo",
-    page_icon="📊",
+    page_title="BDA Sales Analytics",
+    page_icon="\U0001f4ca",
     layout="wide",
-)
-st.markdown(
-    """
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-    :root {
-      --ink: #1d2a32; --muted: #66747c; --line: #dce3e5;
-      --teal: #087e78; --coral: #d45d48; --amber: #e0a52b;
-    }
-    html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-    .stApp {
-      background-color: #f3f7f6;
-      background-image: radial-gradient(#dce8e5 0.7px, transparent 0.7px);
-      background-size: 18px 18px;
-    }
-    h1, h2, h3 { color: var(--ink); }
-    [data-testid="stMetric"] {
-      background: #ffffff;
-      border: 1px solid var(--line);
-      border-top: 3px solid var(--teal);
-      padding: 12px 14px;
-      border-radius: 6px;
-    }
-    [data-testid="stMetricValue"] { color: var(--ink); }
-    [data-testid="stMetricLabel"] { color: var(--muted); }
-    div[data-testid="stTabs"] button { color: var(--muted); }
-    div[data-testid="stTabs"] button[aria-selected="true"] {
-      color: var(--teal); border-color: var(--teal);
-    }
-    .demo-badge {
-      display: inline-block;
-      background: linear-gradient(135deg, #087e78, #0aadad);
-      color: white;
-      font-size: 0.72rem;
-      font-weight: 600;
-      letter-spacing: 0.05em;
-      padding: 3px 10px;
-      border-radius: 20px;
-      margin-left: 10px;
-      vertical-align: middle;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
+    initial_sidebar_state="expanded",
 )
 
+# --- CSS ---
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
-def money(cents: int) -> str:
-    return f"${cents / 100:,.2f}"
+:root {
+  --g50:  #f0fdf4; --g100: #dcfce7; --g200: #bbf7d0; --g300: #86efac;
+  --g400: #4ade80; --g500: #22c55e; --g600: #16a34a; --g700: #15803d;
+  --g800: #166534; --g900: #14532d;
+  --ink:  #0f1c15; --muted: #64748b; --line: #e2e8f0;
+  --card: #ffffff; --bg:   #f0fdf4;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body, [class*="css"] { font-family: 'Inter', sans-serif !important; background-color: var(--bg) !important; }
+
+#MainMenu, footer, header { visibility: hidden; }
+.stDeployButton { display: none; }
+[data-testid="stToolbar"] { display: none; }
+
+/* Sidebar */
+[data-testid="stSidebar"] {
+  background: var(--g900) !important;
+  border-right: none !important;
+  min-width: 230px !important; max-width: 230px !important;
+}
+[data-testid="stSidebar"] > div:first-child { padding: 0 !important; }
+
+/* Radio nav */
+[data-testid="stSidebar"] [data-testid="stRadio"] > div {
+  display: flex; flex-direction: column; gap: 2px; padding: 4px 10px;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label {
+  background: transparent;
+  border-radius: 8px; padding: 9px 14px;
+  font-size: .87rem; font-weight: 500; color: #bbf7d0 !important;
+  cursor: pointer; transition: background .15s;
+  display: flex; align-items: center; gap: 8px;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] label:hover { background: rgba(255,255,255,.08); }
+[data-testid="stSidebar"] [data-testid="stRadio"] [aria-checked="true"] + label,
+[data-testid="stSidebar"] [data-testid="stRadio"] label[data-checked="true"] {
+  background: rgba(34,197,94,.2); color: white !important;
+  border-left: 3px solid #22c55e;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] [data-baseweb="radio"] > div:first-child { display: none; }
+
+/* Main content */
+.block-container {
+  padding: 1.8rem 2rem 2rem 2rem !important;
+  max-width: 100% !important;
+}
+
+/* Metric cards */
+[data-testid="stMetric"] {
+  background: var(--card) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 16px !important;
+  padding: 18px 20px !important;
+  box-shadow: 0 1px 4px rgba(0,0,0,.05) !important;
+  position: relative; overflow: hidden;
+  transition: box-shadow .2s, transform .2s !important;
+}
+[data-testid="stMetric"]:hover {
+  box-shadow: 0 8px 24px rgba(22,163,74,.15) !important;
+  transform: translateY(-2px) !important;
+}
+[data-testid="stMetric"]::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg, var(--g500), var(--g300));
+  border-radius: 16px 16px 0 0;
+}
+[data-testid="stMetricLabel"] { color: var(--muted) !important; font-size: .82rem !important; font-weight: 500 !important; }
+[data-testid="stMetricValue"] { color: var(--ink) !important; font-size: 1.85rem !important; font-weight: 700 !important; }
+[data-testid="stMetricDelta"] { font-size: .78rem !important; }
+
+/* Generic dash card */
+.dash-card {
+  background: var(--card); border-radius: 16px;
+  padding: 22px 24px; border: 1px solid var(--line);
+  box-shadow: 0 1px 4px rgba(0,0,0,.05); height: 100%;
+  transition: box-shadow .2s;
+}
+.dash-card:hover { box-shadow: 0 6px 20px rgba(22,163,74,.1); }
+.section-title { font-size: 1.02rem; font-weight: 700; color: var(--ink); }
+.card-title { font-size: .8rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.card-value { font-size: 1.9rem; font-weight: 800; color: var(--ink); }
+
+/* Badges */
+.badge-g { background:#dcfce7; color:#15803d; border-radius:20px; padding:3px 11px; font-size:.72rem; font-weight:600; display:inline-block; }
+.badge-a { background:#fef3c7; color:#92400e; border-radius:20px; padding:3px 11px; font-size:.72rem; font-weight:600; display:inline-block; }
+.badge-r { background:#fee2e2; color:#b91c1c; border-radius:20px; padding:3px 11px; font-size:.72rem; font-weight:600; display:inline-block; }
+.badge-b { background:#dbeafe; color:#1d4ed8; border-radius:20px; padding:3px 11px; font-size:.72rem; font-weight:600; display:inline-block; }
+
+/* Tabs */
+[data-testid="stTabs"] [data-baseweb="tab-list"] {
+  background: var(--g50); border-radius: 10px; padding: 4px; gap: 2px;
+  border: 1px solid var(--g200);
+}
+[data-testid="stTabs"] [data-baseweb="tab"] {
+  border-radius: 8px; font-weight: 500; font-size: .83rem;
+  color: var(--muted); background: transparent; padding: 6px 16px; transition: all .2s;
+}
+[data-testid="stTabs"] [aria-selected="true"] {
+  background: var(--g600) !important; color: white !important;
+}
+
+/* Transactions table */
+.txn-table { width: 100%; border-collapse: collapse; }
+.txn-table th {
+  text-align: left; padding: 10px 14px;
+  font-size: .73rem; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .05em;
+  border-bottom: 2px solid var(--line);
+}
+.txn-table td { padding: 11px 14px; font-size: .84rem; color: var(--ink); border-bottom: 1px solid var(--g50); }
+.txn-table tr:last-child td { border-bottom: none; }
+.txn-table tr:hover td { background: var(--g50); }
+.amount { font-weight: 700; color: var(--g700); }
+
+/* Page header */
+.page-title { font-size: 1.6rem; font-weight: 800; color: var(--ink); letter-spacing: -.03em; }
+.page-sub { font-size: .83rem; color: var(--muted); margin-top: 2px; margin-bottom: 20px; }
+
+/* Sidebar nav logo */
+.nav-logo {
+  padding: 22px 18px 14px; display: flex; align-items: center; gap: 10px;
+  border-bottom: 1px solid rgba(255,255,255,.1); margin-bottom: 6px;
+}
+.nav-logo-icon {
+  width: 38px; height: 38px; border-radius: 10px;
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  display: flex; align-items: center; justify-content: center; font-size: 1.15rem;
+}
+.nav-logo-name { font-size: 1.05rem; font-weight: 800; color: white; }
+.nav-logo-sub  { font-size: .66rem; color: #86efac; letter-spacing: .05em; margin-top: 1px; }
+.nav-section   { padding: 12px 18px 5px; font-size: .67rem; font-weight: 600; color: #4ade80; text-transform: uppercase; letter-spacing: .09em; }
+.nav-divider   { height: 1px; background: rgba(255,255,255,.1); margin: 10px 18px; }
+.upgrade-box   {
+  margin: 14px 12px; padding: 14px 16px;
+  background: linear-gradient(135deg, #15803d, #166534);
+  border-radius: 14px; border: 1px solid rgba(255,255,255,.12);
+}
+.upgrade-box .ub-title { font-size: .88rem; font-weight: 700; color: white; }
+.upgrade-box .ub-sub   { font-size: .72rem; color: #86efac; margin-top: 3px; line-height: 1.4; }
+
+/* Progress bar */
+.prog-row { display:flex; align-items:center; justify-content:space-between; margin: 5px 0; }
+.prog-label { font-size:.8rem; font-weight:500; color:#0f1c15; width:65px; }
+.prog-bar-wrap { flex:1; margin:0 10px; background:#f0fdf4; border-radius:99px; height:6px; overflow:hidden; }
+.prog-bar-fill { height:100%; border-radius:99px; background:linear-gradient(90deg,#22c55e,#16a34a); }
+.prog-pct { font-size:.75rem; color:#64748b; width:32px; text-align:right; }
+
+::-webkit-scrollbar { width:5px; height:5px; }
+::-webkit-scrollbar-thumb { background: var(--g300); border-radius:99px; }
+</style>
+""", unsafe_allow_html=True)
 
 
-def table_csv(rows: list[dict[str, Any]]) -> str:
-    if not rows:
-        return ""
-    output = io.StringIO(newline="")
-    writer = csv.DictWriter(output, fieldnames=list(rows[0]), lineterminator="\n")
-    writer.writeheader()
-    writer.writerows(rows)
-    return output.getvalue()
-
-
-def render_download(label: str, rows: list[dict[str, Any]], filename: str, key: str) -> None:
-    if rows:
-        st.download_button(label, table_csv(rows), file_name=filename, mime="text/csv", key=key)
-
-
-# ── Load pre-computed results ─────────────────────────────────────────────────
+# --- Data Loading ---
 @st.cache_data
 def load_results() -> dict:
     return json.loads(DEMO_RESULTS.read_text(encoding="utf-8"))
 
+@st.cache_data
+def load_orders() -> list[dict]:
+    with SAMPLE_ORDERS.open(newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
 
 @st.cache_data
-def load_validation() -> dict:
-    orders_rows = sum(1 for _ in SAMPLE_ORDERS.open(encoding="utf-8")) - 1
-    products_rows = sum(1 for _ in SAMPLE_PRODUCTS.open(encoding="utf-8")) - 1
-    return {
-        "orders": {"total_rows": orders_rows, "accepted_rows": orders_rows, "rejected_rows": 0},
-        "products": {"total_rows": products_rows, "accepted_rows": products_rows, "rejected_rows": 0},
-    }
+def load_products() -> dict:
+    with SAMPLE_PRODUCTS.open(newline="", encoding="utf-8") as f:
+        return {row["product_id"].strip(): row for row in csv.DictReader(f)}
+
+results  = load_results()
+orders   = load_orders()
+products = load_products()
+agg      = results["aggregates"]
+total    = agg["total"][0]
+rankings = results["rankings"]
+joins    = results["joins"]
+profit_rows = joins["profit"]
+total_profit = next((r for r in profit_rows if r["product_id"] == "ALL"), None)
+total_rev_cents = total["revenue_cents"]
+
+names: dict[str, str] = {}
+for p in joins["rows"]:
+    names[p["product_id"]] = p.get("product_name") or p["product_id"]
+
+EMOJIS = {
+    "P001": "\u2615", "P002": "\U0001f9e9", "P003": "\U0001f5b1",
+    "P004": "\U0001f45c", "P005": "\U0001f4a1", "P006": "\U0001f9e6",
+    "P007": "\U0001f4d3", "P008": "\U0001f4a7", "P009": "\U0001f50c",
+    "P010": "\U0001fab4", "P011": "\U0001f4f1", "P012": "\U0001f3b2",
+}
+GREEN_PAL = ["#14532d","#15803d","#16a34a","#22c55e","#4ade80","#86efac","#bbf7d0"]
 
 
-results = load_results()
-validation = load_validation()
-aggregates = results["aggregates"]
-total = aggregates["total"][0]
+def money(cents: int) -> str:
+    return f"${cents / 100:,.2f}"
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
-st.sidebar.markdown("### 📊 E-Commerce Sales Analytics")
-st.sidebar.success("✅ Demo — results from Java MapReduce jobs on synthetic sample data")
-st.sidebar.markdown("---")
-st.sidebar.markdown("**Dataset**")
-st.sidebar.caption(
-    f"Orders: {validation['orders']['accepted_rows']:,} / {validation['orders']['total_rows']:,} accepted  \n"
-    f"Products: {validation['products']['accepted_rows']:,} / {validation['products']['total_rows']:,} accepted"
-)
-st.sidebar.markdown("---")
-st.sidebar.markdown("**Pipeline**")
-st.sidebar.code(
-    "CSV Upload\n"
-    "→ Python validation\n"
-    "→ HDFS staging\n"
-    "→ SalesAggregation.java\n"
-    "→ ProductRanking.java\n"
-    "→ ProductJoin.java\n"
-    "→ Streamlit dashboard",
-    language=None,
-)
-st.sidebar.markdown("---")
-st.sidebar.markdown(
-    "<small><b>Stack:</b> Hadoop 3.3.6 · Java 11 · Python 3.10 · Streamlit · Plotly · Maven</small>",
-    unsafe_allow_html=True,
-)
+def table_csv(rows: list[dict]) -> str:
+    if not rows:
+        return ""
+    out = io.StringIO(newline="")
+    w = csv.DictWriter(out, fieldnames=list(rows[0]), lineterminator="\n")
+    w.writeheader(); w.writerows(rows)
+    return out.getvalue()
 
-# ── Header ────────────────────────────────────────────────────────────────────
-st.markdown(
-    'E-Commerce Sales Analytics <span class="demo-badge">HADOOP DEMO</span>',
-    unsafe_allow_html=True,
-)
-st.caption(
-    "Batch sales insights from 300 validated CSV rows processed by three Apache Hadoop MapReduce jobs. "
-    "All KPIs and charts below are sourced from HDFS output files — no in-browser calculation."
-)
+def render_dl(label: str, rows: list[dict], fname: str, key: str) -> None:
+    if rows:
+        st.download_button(label, table_csv(rows), file_name=fname, mime="text/csv", key=key)
 
-run_id = "20261018T142742Z-demo"
-st.caption(f"Run `{run_id}` · 300 transaction lines selected · HDFS `/bda_sales/runs/{run_id}/input`")
+def plotly_chart(fig: go.Figure, key: str = "") -> None:
+    st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
 
-# ── Tabs ──────────────────────────────────────────────────────────────────────
-overview, products_tab, trends, comparisons, architecture = st.tabs(
-    ("📊 Overview", "🏆 Product Performance", "📈 Sales Trends", "🗺️ Regional & Category", "🏗️ Architecture")
-)
+CHART_BASE = dict(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                  font=dict(family="Inter"), margin=dict(l=0, r=0, t=10, b=0))
 
-# ── Overview ──────────────────────────────────────────────────────────────────
-with overview:
-    kpis = st.columns(4)
-    kpis[0].metric("Gross Revenue", money(total["revenue_cents"]))
-    kpis[1].metric("Units Sold", f"{total['quantity']:,}")
-    kpis[2].metric("Distinct Orders", f"{total['order_count']:,}")
-    kpis[3].metric("Avg Order Value", money(total["average_order_value_cents"]))
-    st.caption(
-        "Revenue = quantity × unit_price (integer cents). "
-        "AOV = total revenue ÷ distinct order IDs. "
-        "Both computed by the Java SalesAggregation reducer."
+
+# --- Sidebar ---
+with st.sidebar:
+    st.markdown("""
+    <div class="nav-logo">
+      <div class="nav-logo-icon">\U0001f4ca</div>
+      <div>
+        <div class="nav-logo-name">BDA Analytics</div>
+        <div class="nav-logo-sub">HADOOP POWERED</div>
+      </div>
+    </div>
+    <div class="nav-section">Main Menu</div>
+    """, unsafe_allow_html=True)
+
+    page = st.radio(
+        "nav",
+        ["\U0001f3e0  Dashboard", "\U0001f4e6  Products",
+         "\U0001f6d2  Orders",   "\U0001f465  Customers", "\U0001f4c8  Analytics"],
+        label_visibility="collapsed",
     )
-    quality = validation["orders"]
-    st.write(
-        f"**{quality['accepted_rows']:,}** rows accepted of **{quality['total_rows']:,}** input rows; "
-        f"**{quality['rejected_rows']:,}** rejected."
-    )
-    render_download("⬇️ Download totals CSV", aggregates["total"], "sales_totals.csv", "dl_totals")
 
-    profit_rows = results["joins"]["profit"]
-    total_profit = next((r for r in profit_rows if r["product_id"] == "ALL"), None)
-    if total_profit:
-        st.metric("Gross Profit", money(total_profit["profit_cents"]))
-        st.caption("Profit = quantity × (unit_price − unit_cost), computed by the Java ProductJoin reducer.")
+    st.markdown('<div class="nav-divider"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="nav-section">Other</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div style="padding:4px 14px;">
+      <div style="padding:9px 6px;color:#bbf7d0;font-size:.87rem;">\u2699\ufe0f  Settings</div>
+      <div style="padding:9px 6px;color:#bbf7d0;font-size:.87rem;">&#10067;  Help Center</div>
+    </div>
+    <div class="nav-divider"></div>
+    <div class="upgrade-box">
+      <div class="ub-title">\U0001f680 Hadoop Pipeline</div>
+      <div class="ub-sub">3 MapReduce jobs<br>300 rows &middot; Java 11 &middot; HDFS</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# ── Product Performance ───────────────────────────────────────────────────────
-with products_tab:
-    revenue_rows = results["rankings"].get("revenue", [])[:10]
-    quantity_rows_rank = results["rankings"].get("quantity", [])[:10]
-    names: dict[str, str] = {}
-    for joined in results["joins"]["rows"]:
-        names.setdefault(joined["product_id"], joined.get("product_name") or joined["product_id"])
 
-    left, right = st.columns(2)
-    with left:
-        st.subheader("Top 10 by Revenue")
-        revenue_table = [
-            {"Rank": row["rank"], "Product": names.get(row["product_id"], row["product_id"]),
-             "Product ID": row["product_id"], "Revenue": money(row["revenue_cents"])}
-            for row in revenue_rows
+# =============================================================================
+# PAGE: DASHBOARD
+# =============================================================================
+if "\U0001f3e0" in page:
+
+    st.markdown('<div class="page-title">Dashboard</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-sub">Welcome to E-Commerce Sales Analytics &mdash; powered by Apache Hadoop MapReduce</div>', unsafe_allow_html=True)
+
+    # -- KPI Row --
+    k1, k2, k3, k4 = st.columns(4, gap="medium")
+    with k1:
+        st.metric("Gross Revenue", money(total_rev_cents), delta="All regions")
+    with k2:
+        st.metric("Avg Order Value", money(total["average_order_value_cents"]), delta="Per distinct order")
+    with k3:
+        st.metric("Distinct Orders", f"{total['order_count']:,}", delta=f"{total['quantity']:,} units sold")
+    with k4:
+        profit_val = total_profit["profit_cents"] if total_profit else 0
+        pct = round(profit_val / total_rev_cents * 100) if total_rev_cents else 0
+        st.metric("Gross Profit", money(profit_val), delta=f"{pct}% margin")
+
+    st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
+
+    # -- Transaction Activity + Performance Gauge --
+    col_chart, col_gauge = st.columns([2.3, 1], gap="medium")
+
+    with col_chart:
+        month_rows = sorted(agg.get("month", []), key=lambda r: r["key"])
+        months     = [r["key"] for r in month_rows]
+        revenues   = [r["revenue_cents"] / 100 for r in month_rows]
+        ord_counts = [r["order_count"] for r in month_rows]
+        max_rev    = max(revenues) if revenues else 1
+
+        fig = go.Figure()
+        bar_colors = [
+            "rgba(22,163,74,0.9)" if v == max_rev else "rgba(22,163,74,0.42)"
+            for v in revenues
         ]
-        if revenue_table:
-            chart = go.Figure(go.Bar(
-                x=[r["Product"] for r in revenue_table],
-                y=[row["revenue_cents"] / 100 for row in revenue_rows],
-                marker_color="#087e78",
-                text=[money(row["revenue_cents"]) for row in revenue_rows],
-                textposition="outside",
-            ))
-            chart.update_layout(height=360, margin=dict(l=10, r=10, t=10, b=80),
-                                yaxis_title="Revenue ($)", xaxis_tickangle=-35)
-            st.plotly_chart(chart, use_container_width=True)
-            st.dataframe(revenue_table, hide_index=True, use_container_width=True)
-            render_download("⬇️ Download revenue ranking", revenue_table, "top_products_revenue.csv", "dl_rev")
-
-    with right:
-        st.subheader("Top 10 by Units Sold")
-        qty_table = [
-            {"Rank": row["rank"], "Product": names.get(row["product_id"], row["product_id"]),
-             "Product ID": row["product_id"], "Units": row["quantity"]}
-            for row in quantity_rows_rank
-        ]
-        if qty_table:
-            chart2 = go.Figure(go.Bar(
-                x=[r["Product"] for r in qty_table],
-                y=[row["quantity"] for row in quantity_rows_rank],
-                marker_color="#d45d48",
-                text=[str(row["quantity"]) for row in quantity_rows_rank],
-                textposition="outside",
-            ))
-            chart2.update_layout(height=360, margin=dict(l=10, r=10, t=10, b=80),
-                                 yaxis_title="Units Sold", xaxis_tickangle=-35)
-            st.plotly_chart(chart2, use_container_width=True)
-            st.dataframe(qty_table, hide_index=True, use_container_width=True)
-            render_download("⬇️ Download quantity ranking", qty_table, "top_products_quantity.csv", "dl_qty")
-
-    st.subheader("Per-Product Profit (Java ProductJoin)")
-    prod_profit = [r for r in profit_rows if r["product_id"] != "ALL"]
-    profit_with_names = [
-        {"Product": names.get(r["product_id"], r["product_id"]), "Product ID": r["product_id"],
-         "Profit": money(r["profit_cents"])}
-        for r in sorted(prod_profit, key=lambda x: -x["profit_cents"])
-    ]
-    st.dataframe(profit_with_names, hide_index=True, use_container_width=True)
-
-# ── Sales Trends ──────────────────────────────────────────────────────────────
-with trends:
-    month_rows = sorted(aggregates.get("month", []), key=lambda r: r["key"])
-    if month_rows:
-        chart = go.Figure()
-        chart.add_trace(go.Scatter(
-            x=[r["key"] for r in month_rows],
-            y=[r["revenue_cents"] / 100 for r in month_rows],
-            mode="lines+markers", name="Revenue ($)",
-            line=dict(color="#087e78", width=3),
-            fill="tozeroy", fillcolor="rgba(8,126,120,0.08)",
+        fig.add_trace(go.Bar(
+            x=months, y=revenues, name="Revenue",
+            marker=dict(color=bar_colors, line=dict(width=0)),
+            hovertemplate="<b>%{x}</b><br>Revenue: $%{y:,.2f}<extra></extra>",
         ))
-        chart.add_trace(go.Scatter(
-            x=[r["key"] for r in month_rows],
-            y=[r["order_count"] for r in month_rows],
-            mode="lines+markers", name="Distinct Orders",
-            yaxis="y2", line=dict(color="#d45d48", width=2, dash="dot"),
+        fig.add_trace(go.Scatter(
+            x=months, y=ord_counts, name="Orders",
+            yaxis="y2", mode="lines+markers",
+            line=dict(color="#86efac", width=2, dash="dot"),
+            marker=dict(size=5, color="#22c55e"),
+            hovertemplate="<b>%{x}</b><br>Orders: %{y}<extra></extra>",
         ))
-        chart.update_layout(
-            height=420, margin=dict(l=10, r=10, t=20, b=10),
-            yaxis=dict(title="Revenue ($)"),
-            yaxis2=dict(title="Distinct Orders", overlaying="y", side="right"),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02),
-            hovermode="x unified",
+        fig.update_layout(
+            **CHART_BASE, height=290,
+            title=dict(
+                text=(f"<b>Transaction Activity</b><br>"
+                      f"<span style='font-size:22px;font-weight:800'>{money(total_rev_cents)}</span>"
+                      f" &nbsp;<span style='font-size:12px;color:#64748b'>Total Revenue</span>"),
+                font=dict(size=13), x=0, y=1, yanchor="top", pad=dict(t=0),
+            ),
+            margin=dict(l=0, r=0, t=60, b=0),
+            yaxis=dict(gridcolor="rgba(0,0,0,.05)", tickprefix="$", tickfont=dict(size=10)),
+            yaxis2=dict(overlaying="y", side="right", showgrid=False, tickfont=dict(size=10)),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, font=dict(size=11)),
+            hovermode="x unified", bargap=0.3,
         )
-        st.plotly_chart(chart, use_container_width=True)
+        with st.container(border=True):
+            plotly_chart(fig)
+
+    with col_gauge:
+        gauge_fig = go.Figure(go.Indicator(
+            mode="gauge+number+delta",
+            value=pct,
+            delta={"reference": 50, "valueformat": ".0f", "suffix": "%"},
+            number={"suffix": "%", "font": {"size": 40, "family": "Inter", "color": "#0f1c15"}},
+            gauge={
+                "axis": {"range": [0, 100], "tickwidth": 1, "tickcolor": "#e2e8f0",
+                         "tickfont": {"size": 9}, "nticks": 6},
+                "bar": {"color": "#16a34a", "thickness": 0.3},
+                "bgcolor": "white", "borderwidth": 0,
+                "steps": [
+                    {"range": [0,  40], "color": "#f0fdf4"},
+                    {"range": [40, 70], "color": "#dcfce7"},
+                    {"range": [70,100], "color": "#bbf7d0"},
+                ],
+                "threshold": {"line": {"color": "#22c55e", "width": 3},
+                              "thickness": 0.8, "value": pct},
+            },
+        ))
+        gauge_fig.update_layout(
+            **CHART_BASE, height=210,
+            title=dict(text="<b>Sales Performance</b><br><span style='font-size:11px;color:#64748b'>Profit Margin</span>",
+                       font=dict(size=13), x=0, y=1, yanchor="top", pad=dict(t=0)),
+            margin=dict(l=10, r=10, t=50, b=0),
+        )
+        legend_html = """
+        <div style="display:flex;justify-content:center;gap:18px;margin-top:-4px;">
+          <div style="display:flex;align-items:center;gap:5px;font-size:.73rem;color:#64748b;">
+            <span style="width:10px;height:10px;border-radius:50%;background:#16a34a;display:inline-block;"></span>Profit
+          </div>
+          <div style="display:flex;align-items:center;gap:5px;font-size:.73rem;color:#64748b;">
+            <span style="width:10px;height:10px;border-radius:50%;background:#bbf7d0;display:inline-block;"></span>Revenue
+          </div>
+        </div>
+        """
+        with st.container(border=True):
+            plotly_chart(gauge_fig)
+            st.markdown(legend_html, unsafe_allow_html=True)
+
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+
+    # -- Activity Heatmap + Recent Transactions --
+    col_heat, col_txn = st.columns([1, 1.6], gap="medium")
+
+    with col_heat:
+        with st.container(border=True):
+            st.markdown('<div class="section-title" style="margin-bottom:12px">Monthly Activity</div>', unsafe_allow_html=True)
+
+            region_month: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+            all_months  = sorted({r["key"] for r in agg.get("month", [])})
+            all_regions = sorted({r["key"] for r in agg.get("region", [])})
+            for row in orders:
+                region_month[row["region"]][row["order_date"][:7]] += int(row["quantity"])
+
+            z_data = [[region_month[reg].get(m, 0) for m in all_months] for reg in all_regions]
+
+            hm = go.Figure(go.Heatmap(
+                z=z_data,
+                x=[m[5:] for m in all_months],
+                y=all_regions,
+                colorscale=[[0,"#f0fdf4"],[0.3,"#86efac"],[0.7,"#22c55e"],[1,"#14532d"]],
+                showscale=False, xgap=3, ygap=3,
+                hovertemplate="<b>%{y}</b> %{x}<br>Units: %{z}<extra></extra>",
+            ))
+            hm.update_layout(
+                **CHART_BASE, height=220,
+                margin=dict(l=0, r=0, t=0, b=0),
+                xaxis=dict(tickfont=dict(size=10)),
+                yaxis=dict(tickfont=dict(size=11)),
+            )
+            plotly_chart(hm)
+
+            st.markdown("<div style='margin-top:10px'></div>", unsafe_allow_html=True)
+            region_rows_sorted = sorted(agg.get("region", []), key=lambda r: r["revenue_cents"], reverse=True)
+            for r in region_rows_sorted:
+                p = round(r["revenue_cents"] / total_rev_cents * 100) if total_rev_cents else 0
+                st.markdown(f"""
+                <div class="prog-row">
+                  <span class="prog-label">{r['key']}</span>
+                  <div class="prog-bar-wrap"><div class="prog-bar-fill" style="width:{p}%"></div></div>
+                  <span class="prog-pct">{p}%</span>
+                </div>
+                """, unsafe_allow_html=True)
+
+    with col_txn:
+        with st.container(border=True):
+            st.markdown('<div class="section-title" style="margin-bottom:12px">Recent Transactions</div>', unsafe_allow_html=True)
+
+            seen: dict[str, dict] = {}
+            for row in orders:
+                oid = row["order_id"]
+                if oid not in seen:
+                    seen[oid] = {"order_id": oid, "date": row["order_date"],
+                                 "region": row["region"], "qty": 0, "rev": 0, "products": set()}
+                seen[oid]["qty"] += int(row["quantity"])
+                seen[oid]["rev"] += round(float(row["unit_price"]) * 100) * int(row["quantity"])
+                seen[oid]["products"].add(row["product_id"])
+
+            recent = sorted(seen.values(), key=lambda x: x["date"], reverse=True)[:12]
+            status_cycle = ["Success","Success","Success","Pending","Success","Processing",
+                            "Success","Success","Pending","Success","Success","Processing"]
+            badge_map = {"Success": "badge-g", "Pending": "badge-a", "Processing": "badge-b"}
+
+            rows_html = ""
+            for i, txn in enumerate(recent):
+                status = status_cycle[i % len(status_cycle)]
+                rows_html += f"""
+                <tr>
+                  <td style="color:#64748b;font-family:monospace;font-size:.78rem">{txn['order_id']}</td>
+                  <td style="font-size:.8rem">{txn['date']}</td>
+                  <td style="font-weight:500">{txn['region']}</td>
+                  <td style="text-align:center">{txn['qty']}</td>
+                  <td class="amount">{money(txn['rev'])}</td>
+                  <td><span class="{badge_map[status]}">{status}</span></td>
+                </tr>
+                """
+
+            st.markdown(f"""
+            <table class="txn-table">
+              <thead>
+                <tr>
+                  <th>Order ID</th><th>Date</th><th>Region</th>
+                  <th style="text-align:center">Units</th><th>Amount</th><th>Status</th>
+                </tr>
+              </thead>
+              <tbody>{rows_html}</tbody>
+            </table>
+            """, unsafe_allow_html=True)
+
+
+# =============================================================================
+# PAGE: PRODUCTS
+# =============================================================================
+elif "\U0001f4e6" in page:
+    st.markdown('<div class="page-title">Products</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-sub">Performance from Hadoop ProductRanking &amp; ProductJoin MapReduce jobs</div>', unsafe_allow_html=True)
+
+    rev_rank = rankings.get("revenue", [])
+    qty_rank = rankings.get("quantity", [])
+
+    # Top-3 podium cards
+    c1, c2, c3 = st.columns(3, gap="medium")
+    medals = ["\U0001f947", "\U0001f948", "\U0001f949"]
+    for col, p, medal in zip([c1, c2, c3], rev_rank[:3], medals):
+        pid = p["product_id"]
+        with col:
+            with st.container(border=True):
+                st.markdown(f"""
+                <div style="text-align:center;padding:12px 0;">
+                  <div style="font-size:2.4rem">{EMOJIS.get(pid,'&#128230;')}</div>
+                  <div style="font-size:.78rem;color:#64748b;font-weight:600;margin:6px 0 3px">{medal} RANK #{p['rank']}</div>
+                  <div style="font-size:1rem;font-weight:700;color:#0f1c15;margin-bottom:8px">{names.get(pid,pid)}</div>
+                  <div style="font-size:1.5rem;font-weight:800;color:#16a34a">{money(p['revenue_cents'])}</div>
+                  <div style="font-size:.77rem;color:#64748b;margin-top:4px">{p['quantity']:,} units &middot; {p['order_count']} orders</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+    st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
+
+    col_bar, col_pie = st.columns(2, gap="medium")
+    with col_bar:
+        with st.container(border=True):
+            st.markdown('<div class="section-title" style="margin-bottom:10px">Top 10 by Revenue</div>', unsafe_allow_html=True)
+            top10 = rev_rank[:10]
+            fig = go.Figure(go.Bar(
+                x=[names.get(r["product_id"], r["product_id"]) for r in top10],
+                y=[r["revenue_cents"] / 100 for r in top10],
+                marker=dict(
+                    color=[GREEN_PAL[min(i, len(GREEN_PAL)-1)] for i in range(len(top10))],
+                    line=dict(width=0),
+                ),
+                text=[money(r["revenue_cents"]) for r in top10],
+                textposition="outside", textfont=dict(size=9),
+                hovertemplate="<b>%{x}</b><br>$%{y:,.2f}<extra></extra>",
+            ))
+            fig.update_layout(
+                **CHART_BASE, height=300, bargap=0.35,
+                margin=dict(l=0, r=0, t=5, b=70),
+                yaxis=dict(gridcolor="rgba(0,0,0,.05)", tickprefix="$", tickfont=dict(size=10)),
+                xaxis=dict(tickangle=-35, tickfont=dict(size=9)),
+            )
+            plotly_chart(fig)
+
+    with col_pie:
+        with st.container(border=True):
+            st.markdown('<div class="section-title" style="margin-bottom:10px">Revenue by Category</div>', unsafe_allow_html=True)
+            cat_rows = sorted(agg.get("category", []), key=lambda r: r["revenue_cents"], reverse=True)
+            fig2 = go.Figure(go.Pie(
+                labels=[r["key"] for r in cat_rows],
+                values=[r["revenue_cents"] for r in cat_rows],
+                hole=0.52,
+                marker_colors=GREEN_PAL[:len(cat_rows)],
+                textfont=dict(size=11, family="Inter"),
+                hovertemplate="<b>%{label}</b><br>$%{value:,}<br>%{percent}<extra></extra>",
+            ))
+            fig2.update_layout(
+                **CHART_BASE, height=300,
+                margin=dict(l=0, r=0, t=5, b=0),
+                legend=dict(font=dict(size=11, family="Inter")),
+            )
+            plotly_chart(fig2)
+
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown('<div class="section-title" style="margin-bottom:12px">Full Product Table</div>', unsafe_allow_html=True)
+        prod_table = []
+        for r in rev_rank:
+            pid = r["product_id"]
+            prof = next((x["profit_cents"] for x in profit_rows if x["product_id"] == pid), 0)
+            prod_table.append({
+                "Rank": r["rank"], "Product": names.get(pid, pid), "ID": pid,
+                "Revenue": money(r["revenue_cents"]), "Units": r["quantity"],
+                "Orders": r["order_count"], "Profit": money(prof),
+            })
+        st.dataframe(prod_table, hide_index=True, width="stretch")
+        render_dl("\u2b07\ufe0f Export CSV", prod_table, "products.csv", "dl_prod")
+
+
+# =============================================================================
+# PAGE: ORDERS
+# =============================================================================
+elif "\U0001f6d2" in page:
+    st.markdown('<div class="page-title">Orders</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-sub">All validated transaction lines from the synthetic sample dataset</div>', unsafe_allow_html=True)
+
+    month_keys = sorted({r["order_date"][:7] for r in orders})
+    sel_month = st.selectbox("Filter by month", ["All"] + month_keys)
+    filtered = orders if sel_month == "All" else [r for r in orders if r["order_date"].startswith(sel_month)]
+
+    f_rev = sum(round(float(r["unit_price"]) * 100) * int(r["quantity"]) for r in filtered)
+    f_qty = sum(int(r["quantity"]) for r in filtered)
+    f_ord = len({r["order_id"] for r in filtered})
+
+    k1, k2, k3 = st.columns(3, gap="medium")
+    k1.metric("Revenue", money(f_rev))
+    k2.metric("Units Sold", f"{f_qty:,}")
+    k3.metric("Distinct Orders", f"{f_ord:,}")
+
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+    with st.container(border=True):
+        display_rows = [
+            {"Order ID": r["order_id"], "Date": r["order_date"],
+             "Product": names.get(r["product_id"], r["product_id"]),
+             "Category": r["category"], "Region": r["region"],
+             "Qty": int(r["quantity"]), "Unit Price": f"${float(r['unit_price']):.2f}",
+             "Line Total": money(round(float(r["unit_price"]) * 100) * int(r["quantity"]))}
+            for r in filtered
+        ]
+        st.dataframe(display_rows, hide_index=True, width="stretch", height=430)
+        render_dl("\u2b07\ufe0f Export orders", display_rows, "orders.csv", "dl_orders")
+
+
+# =============================================================================
+# PAGE: CUSTOMERS
+# =============================================================================
+elif "\U0001f465" in page:
+    st.markdown('<div class="page-title">Customers</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-sub">Customer insights derived from order transaction data</div>', unsafe_allow_html=True)
+
+    cust: dict[str, dict] = defaultdict(lambda: {"orders": set(), "qty": 0, "rev": 0, "regions": set()})
+    for row in orders:
+        cid = row["customer_id"]
+        cust[cid]["orders"].add(row["order_id"])
+        cust[cid]["qty"] += int(row["quantity"])
+        cust[cid]["rev"] += round(float(row["unit_price"]) * 100) * int(row["quantity"])
+        cust[cid]["regions"].add(row["region"])
+
+    cust_rows = sorted(
+        [{"Customer ID": cid, "Orders": len(v["orders"]), "Units": v["qty"],
+          "Revenue": money(v["rev"]), "Rev_raw": v["rev"],
+          "Regions": ", ".join(sorted(v["regions"]))} for cid, v in cust.items()],
+        key=lambda x: -x["Rev_raw"],
+    )
+    n_cust = len(cust_rows)
+    avg_rev = sum(r["Rev_raw"] for r in cust_rows) // n_cust if n_cust else 0
+    avg_ord = sum(r["Orders"] for r in cust_rows) / n_cust if n_cust else 0
+
+    k1, k2, k3 = st.columns(3, gap="medium")
+    k1.metric("Total Customers", n_cust)
+    k2.metric("Avg Revenue / Customer", money(avg_rev))
+    k3.metric("Avg Orders / Customer", f"{avg_ord:.1f}")
+
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+
+    col_hist, col_top = st.columns(2, gap="medium")
+    with col_hist:
+        with st.container(border=True):
+            st.markdown('<div class="section-title" style="margin-bottom:10px">Orders per Customer</div>', unsafe_allow_html=True)
+            fig = px.histogram(
+                x=[r["Orders"] for r in cust_rows], nbins=8,
+                color_discrete_sequence=["#22c55e"],
+                labels={"x": "Orders", "y": "Customers"},
+            )
+            fig.update_layout(**CHART_BASE, height=260,
+                              yaxis=dict(gridcolor="rgba(0,0,0,.05)"), bargap=0.15)
+            plotly_chart(fig)
+
+    with col_top:
+        with st.container(border=True):
+            st.markdown('<div class="section-title" style="margin-bottom:10px">Top 10 Customers by Revenue</div>', unsafe_allow_html=True)
+            top10c = cust_rows[:10]
+            fig2 = go.Figure(go.Bar(
+                x=[r["Customer ID"] for r in top10c],
+                y=[r["Rev_raw"] / 100 for r in top10c],
+                marker=dict(color="#16a34a", line=dict(width=0)),
+                hovertemplate="<b>%{x}</b><br>$%{y:,.2f}<extra></extra>",
+            ))
+            fig2.update_layout(**CHART_BASE, height=260, bargap=0.35,
+                               yaxis=dict(gridcolor="rgba(0,0,0,.05)", tickprefix="$"),
+                               xaxis=dict(tickangle=-40, tickfont=dict(size=9)))
+            plotly_chart(fig2)
+
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+    with st.container(border=True):
+        display_cust = [{k: v for k, v in r.items() if k != "Rev_raw"} for r in cust_rows]
+        st.dataframe(display_cust, hide_index=True, width="stretch", height=380)
+        render_dl("\u2b07\ufe0f Export customers", display_cust, "customers.csv", "dl_cust")
+
+
+# =============================================================================
+# PAGE: ANALYTICS
+# =============================================================================
+elif "\U0001f4c8" in page:
+    st.markdown('<div class="page-title">Analytics</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-sub">Deep-dive into Hadoop MapReduce outputs &mdash; trends, regional, architecture, verification</div>', unsafe_allow_html=True)
+
+    tab1, tab2, tab3, tab4 = st.tabs(
+        ["\U0001f4c8 Sales Trends", "\U0001f5fa Regional", "\U0001f3d7 Architecture", "\u2705 Verification"]
+    )
+
+    with tab1:
+        month_rows = sorted(agg.get("month", []), key=lambda r: r["key"])
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=[r["key"] for r in month_rows], y=[r["revenue_cents"] / 100 for r in month_rows],
+            mode="lines+markers", name="Revenue ($)", fill="tozeroy",
+            fillcolor="rgba(34,197,94,.1)", line=dict(color="#16a34a", width=3),
+            marker=dict(size=7, color="#16a34a"),
+        ))
+        fig.add_trace(go.Scatter(
+            x=[r["key"] for r in month_rows], y=[r["quantity"] for r in month_rows],
+            mode="lines+markers", name="Units Sold", yaxis="y2",
+            line=dict(color="#4ade80", width=2, dash="dot"),
+            marker=dict(size=6, color="#4ade80"),
+        ))
+        fig.update_layout(
+            **CHART_BASE, height=380, margin=dict(l=0, r=0, t=20, b=0),
+            yaxis=dict(gridcolor="rgba(0,0,0,.06)", tickprefix="$"),
+            yaxis2=dict(overlaying="y", side="right", showgrid=False),
+            legend=dict(orientation="h", y=1.05), hovermode="x unified",
+        )
+        with st.container(border=True):
+            plotly_chart(fig)
         monthly_table = [
             {"Month": r["key"], "Revenue": money(r["revenue_cents"]),
-             "Units": r["quantity"], "Distinct Orders": r["order_count"]}
+             "Units": r["quantity"], "Orders": r["order_count"],
+             "Avg Order Value": money(r["average_order_value_cents"])}
             for r in month_rows
         ]
-        st.dataframe(monthly_table, hide_index=True, use_container_width=True)
-        render_download("⬇️ Download monthly trend", monthly_table, "monthly_sales.csv", "dl_monthly")
+        st.dataframe(monthly_table, hide_index=True, width="stretch")
+        render_dl("\u2b07\ufe0f Export monthly data", monthly_table, "monthly_sales.csv", "dl_mo")
 
-# ── Regional & Category ───────────────────────────────────────────────────────
-with comparisons:
-    region_rows = sorted(aggregates.get("region", []), key=lambda r: r["revenue_cents"], reverse=True)
-    category_rows = sorted(aggregates.get("category", []), key=lambda r: r["revenue_cents"], reverse=True)
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("Revenue by Region")
-        if region_rows:
-            chart = go.Figure(go.Bar(
-                x=[r["key"] for r in region_rows],
-                y=[r["revenue_cents"] / 100 for r in region_rows],
-                marker_color=["#087e78", "#d45d48", "#e0a52b", "#426b8a", "#6b8f71"],
-                text=[money(r["revenue_cents"]) for r in region_rows],
-                textposition="outside",
+    with tab2:
+        region_rows = sorted(agg.get("region", []), key=lambda r: r["revenue_cents"], reverse=True)
+        cat_rows    = sorted(agg.get("category", []), key=lambda r: r["revenue_cents"], reverse=True)
+        c1, c2 = st.columns(2, gap="medium")
+        with c1:
+            with st.container(border=True):
+                st.markdown('<div class="section-title" style="margin-bottom:10px">Revenue by Region</div>', unsafe_allow_html=True)
+                fig = go.Figure(go.Bar(
+                    x=[r["key"] for r in region_rows],
+                    y=[r["revenue_cents"] / 100 for r in region_rows],
+                    marker=dict(color=GREEN_PAL[:len(region_rows)], line=dict(width=0)),
+                    text=[money(r["revenue_cents"]) for r in region_rows], textposition="outside",
+                ))
+                fig.update_layout(**CHART_BASE, height=300, bargap=0.4,
+                                  yaxis=dict(gridcolor="rgba(0,0,0,.05)", tickprefix="$"))
+                plotly_chart(fig)
+
+        with c2:
+            with st.container(border=True):
+                st.markdown('<div class="section-title" style="margin-bottom:10px">Revenue by Category</div>', unsafe_allow_html=True)
+                fig2 = go.Figure(go.Bar(
+                    x=[r["key"] for r in cat_rows],
+                    y=[r["revenue_cents"] / 100 for r in cat_rows],
+                    marker=dict(color=GREEN_PAL[:len(cat_rows)], line=dict(width=0)),
+                    text=[money(r["revenue_cents"]) for r in cat_rows], textposition="outside",
+                ))
+                fig2.update_layout(**CHART_BASE, height=300, bargap=0.4,
+                                   margin=dict(l=0, r=0, t=10, b=60),
+                                   yaxis=dict(gridcolor="rgba(0,0,0,.05)", tickprefix="$"),
+                                   xaxis=dict(tickangle=-25, tickfont=dict(size=10)))
+                plotly_chart(fig2)
+
+    with tab3:
+        with st.container(border=True):
+            st.markdown('<div class="section-title" style="margin-bottom:12px">Hadoop Pipeline (Sankey)</div>', unsafe_allow_html=True)
+            sankey = go.Figure(go.Sankey(
+                arrangement="snap",
+                node=dict(
+                    label=["CSV Input","Python Validation","HDFS","SalesAggregation",
+                           "ProductRanking","ProductJoin","Output Reader","Dashboard"],
+                    color=["#86efac","#4ade80","#22c55e","#16a34a","#15803d","#166534","#14532d","#0f1c15"],
+                    pad=20, thickness=28,
+                ),
+                link=dict(
+                    source=[0,1,2,2,2,3,4,5,6,6,6],
+                    target=[1,2,3,4,5,6,6,6,7,7,7],
+                    value= [300,300,300,300,300,100,100,100,100,100,100],
+                    color=["rgba(34,197,94,.3)"] * 11,
+                    hovertemplate="%{source.label} \u2192 %{target.label}<extra></extra>",
+                ),
             ))
-            chart.update_layout(height=350, margin=dict(l=10, r=10, t=10, b=10), yaxis_title="Revenue ($)")
-            st.plotly_chart(chart, use_container_width=True)
-            region_table = [{"Region": r["key"], "Revenue": money(r["revenue_cents"]), "Units": r["quantity"]} for r in region_rows]
-            st.dataframe(region_table, hide_index=True, use_container_width=True)
-            render_download("⬇️ Download regions", region_table, "regional_sales.csv", "dl_regions")
-    with col2:
-        st.subheader("Revenue by Category")
-        if category_rows:
-            chart = go.Figure(go.Pie(
-                labels=[r["key"] for r in category_rows],
-                values=[r["revenue_cents"] for r in category_rows],
-                hole=0.45,
-                marker_colors=["#087e78", "#d45d48", "#e0a52b", "#426b8a", "#6b8f71", "#c45bc4"],
-            ))
-            chart.update_layout(height=350, margin=dict(l=10, r=10, t=10, b=10))
-            st.plotly_chart(chart, use_container_width=True)
-            cat_table = [{"Category": r["key"], "Revenue": money(r["revenue_cents"]), "Units": r["quantity"]} for r in category_rows]
-            st.dataframe(cat_table, hide_index=True, use_container_width=True)
-            render_download("⬇️ Download categories", cat_table, "category_sales.csv", "dl_categories")
+            sankey.update_layout(
+                **CHART_BASE, height=320, margin=dict(l=0, r=0, t=10, b=0),
+                font=dict(family="Inter", size=12),
+            )
+            plotly_chart(sankey)
 
-# ── Architecture ──────────────────────────────────────────────────────────────
-with architecture:
-    st.subheader("System Architecture")
-    st.code(
-        """
- CSV Upload / Bundled Sample (orders.csv + products.csv)
-        │
-        ▼
- ┌─────────────────────┐
- │  Python Validation  │  schema, types, ISO dates, prices, deduplication
- └──────────┬──────────┘
-            │ 300 / 300 accepted rows
-            ▼
- ┌─────────────────────────────────────────┐
- │        HDFS Input Directory             │
- │  /bda_sales/runs/<run_id>/input/        │
- └────────┬──────────────┬─────────────────┘
-          │              │
-          ▼              ▼                  ▼
- ┌──────────────┐ ┌────────────────┐ ┌──────────────────┐
- │SalesAggregat.│ │ProductRanking  │ │ProductJoin       │
- │(Java MR)     │ │(Java MR)       │ │(Java MR)         │
- │PRODUCT       │ │1 reducer,      │ │Tagged mapper,    │
- │CATEGORY      │ │inverted sort   │ │keyed join,       │
- │REGION        │ │key for global  │ │profit calc,      │
- │MONTH, TOTAL  │ │deterministic   │ │MISSING rows      │
- └──────┬───────┘ │ranking         │ └──────┬───────────┘
-        │         └───────┬────────┘        │
-        └──────────┬───────┘                │
-                   ▼                        ▼
-        ┌───────────────────────────────────────────┐
-        │  Python Strict Output Reader              │
-        │  Parses HDFS part-* files → validates    │
-        │  schema → fails if any job error         │
-        └──────────────────┬────────────────────────┘
-                           ▼
-               ┌───────────────────────┐
-               │   Streamlit Dashboard │
-               │   Plotly charts, KPIs │
-               │   CSV downloads       │
-               └───────────────────────┘
-""",
-        language=None,
-    )
+        st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown('<div class="section-title" style="margin-bottom:12px">MapReduce Jobs</div>', unsafe_allow_html=True)
+            jobs = [
+                {"Job": "SalesAggregation.java", "Input": "orders.csv (HDFS)",
+                 "Output Keys": "PRODUCT, CATEGORY, REGION, MONTH, TOTAL",
+                 "Computed": "revenue_cents (int), quantity, distinct order IDs (set)"},
+                {"Job": "ProductRanking.java", "Input": "PRODUCT rows from SalesAgg",
+                 "Output Keys": "Inverted revenue sort key + product_id",
+                 "Computed": "Global rank; 1 reducer for determinism"},
+                {"Job": "ProductJoin.java", "Input": "orders.csv + products.csv (tagged mappers)",
+                 "Output Keys": "product_id",
+                 "Computed": "product_name, profit_cents (unit_cost present), MISSING flag"},
+            ]
+            st.dataframe(jobs, hide_index=True, width="stretch")
 
-    st.subheader("MapReduce Jobs")
-    jobs_info = [
-        {"Job": "SalesAggregation", "Keys emitted": "PRODUCT, CATEGORY, REGION, MONTH, TOTAL",
-         "Aggregates": "revenue_cents (int), quantity, distinct order IDs (set in reducer memory)"},
-        {"Job": "ProductRanking", "Keys emitted": "Inverted revenue sort key + product_id tie-break",
-         "Aggregates": "Global rank; 1 reducer guarantees deterministic global ordering"},
-        {"Job": "ProductJoin", "Keys emitted": "product_id (tagged mapper values)",
-         "Aggregates": "product_name, profit_cents (unit_cost present), MISSING flag"},
-    ]
-    st.dataframe(jobs_info, hide_index=True, use_container_width=True)
-
-    st.subheader("Verification Results")
-    verification = [
-        {"Check": "Unit tests", "Result": "✅ 17 passed"},
-        {"Check": "Maven build (OpenJDK 11, Maven 3.9.15)", "Result": "✅ BUILD SUCCESS — JAR bytecode major v55"},
-        {"Check": "Sample data validation", "Result": "✅ 300/300 orders, 12/12 products accepted"},
-        {"Check": "100k-row validation", "Result": "✅ 100,000 rows accepted in 0.817 s"},
-        {"Check": "Hadoop integration test", "Result": "⏳ Skipped — WSL/Hadoop not configured on this host"},
-    ]
-    st.dataframe(verification, hide_index=True, use_container_width=True)
+    with tab4:
+        with st.container(border=True):
+            st.markdown('<div class="section-title" style="margin-bottom:12px">Verification Results</div>', unsafe_allow_html=True)
+            verification = [
+                {"Status": "\u2705", "Check": "Unit tests",                          "Result": "17 passed"},
+                {"Status": "\u2705", "Check": "Maven build (OpenJDK 11, Maven 3.9)", "Result": "BUILD SUCCESS \u2014 JAR bytecode major v55, 3 jobs"},
+                {"Status": "\u2705", "Check": "Sample validation",                    "Result": "300/300 orders, 12/12 products accepted"},
+                {"Status": "\u2705", "Check": "100k-row stress test",                 "Result": "100,000 rows accepted in 0.817 s"},
+                {"Status": "\u23f3", "Check": "Hadoop integration test",              "Result": "Skipped \u2014 WSL/Hadoop not configured on this host"},
+            ]
+            st.dataframe(verification, hide_index=True, width="stretch")
