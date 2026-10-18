@@ -244,11 +244,16 @@ def render_dl(label: str, rows: list[dict], fname: str, key: str) -> None:
     if rows:
         st.download_button(label, table_csv(rows), file_name=fname, mime="text/csv", key=key)
 
+import plotly.io as pio
+try:
+    pio.templates[pio.templates.default].layout.font.family = "Inter"
+except Exception:
+    pass
+
 def plotly_chart(fig: go.Figure, key: str = "") -> None:
     st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
 
-CHART_BASE = dict(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                  font=dict(family="Inter"), margin=dict(l=0, r=0, t=10, b=0))
+CHART_BASE = dict(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
 
 
 # --- Sidebar ---
@@ -647,7 +652,7 @@ elif "\U0001f465" in page:
                 color_discrete_sequence=["#22c55e"],
                 labels={"x": "Orders", "y": "Customers"},
             )
-            fig.update_layout(**CHART_BASE, height=260,
+            fig.update_layout(**CHART_BASE, height=260, margin=dict(l=0, r=0, t=10, b=0),
                               yaxis=dict(gridcolor="rgba(0,0,0,.05)"), bargap=0.15)
             plotly_chart(fig)
 
@@ -661,7 +666,7 @@ elif "\U0001f465" in page:
                 marker=dict(color="#16a34a", line=dict(width=0)),
                 hovertemplate="<b>%{x}</b><br>$%{y:,.2f}<extra></extra>",
             ))
-            fig2.update_layout(**CHART_BASE, height=260, bargap=0.35,
+            fig2.update_layout(**CHART_BASE, height=260, bargap=0.35, margin=dict(l=0, r=0, t=10, b=40),
                                yaxis=dict(gridcolor="rgba(0,0,0,.05)", tickprefix="$"),
                                xaxis=dict(tickangle=-40, tickfont=dict(size=9)))
             plotly_chart(fig2)
@@ -729,7 +734,7 @@ elif "\U0001f4c8" in page:
                     marker=dict(color=GREEN_PAL[:len(region_rows)], line=dict(width=0)),
                     text=[money(r["revenue_cents"]) for r in region_rows], textposition="outside",
                 ))
-                fig.update_layout(**CHART_BASE, height=300, bargap=0.4,
+                fig.update_layout(**CHART_BASE, height=300, bargap=0.4, margin=dict(l=0, r=0, t=10, b=0),
                                   yaxis=dict(gridcolor="rgba(0,0,0,.05)", tickprefix="$"))
                 plotly_chart(fig)
 
