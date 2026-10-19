@@ -30,7 +30,7 @@ SAMPLE_PRODUCTS = ROOT / "data" / "sample" / "products.csv"
 
 # --- Page Config ---
 st.set_page_config(
-    page_title="BDA Sales Analytics",
+    page_title="Sales Analysis System",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -78,25 +78,85 @@ button[aria-label="Open sidebar"] {
   width: 240px !important;
 }
 
-/* Radio nav */
+/* Hide radio widget label so "nav" or any label box never renders */
+[data-testid="stSidebar"] [data-testid="stRadio"] > label,
+[data-testid="stSidebar"] [data-testid="stRadio"] [data-testid="stWidgetLabel"],
+[data-testid="stSidebar"] [data-testid="stRadio"] div[class*="StyledWidgetLabel"] {
+  display: none !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  visibility: hidden !important;
+}
+
+/* Remove all radio button dots / circles / indicators */
+[data-testid="stSidebar"] [data-testid="stRadio"] [data-baseweb="radio"] > div:first-child,
+[data-testid="stSidebar"] [data-testid="stRadio"] label > div > div:first-child,
+[data-testid="stSidebar"] [data-testid="stRadio"] div[class*="RadioMark"],
+[data-testid="stSidebar"] [data-testid="stRadio"] div[class*="StyledRadioMark"],
+[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"],
+[data-testid="stSidebar"] [data-testid="stRadio"] input[type="radio"] + div,
+[data-testid="stSidebar"] [data-testid="stRadio"] svg {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+}
+
+/* Modern interactive navigation items */
+[data-testid="stSidebar"] [data-testid="stRadio"] {
+  padding: 0 !important;
+}
+[data-testid="stSidebar"] [data-testid="stRadio"] > div[role="radiogroup"],
 [data-testid="stSidebar"] [data-testid="stRadio"] > div {
-  display: flex; flex-direction: column; gap: 4px; padding: 6px 12px;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 5px !important;
+  padding: 2px 14px !important;
 }
 [data-testid="stSidebar"] [data-testid="stRadio"] label {
-  background: transparent;
-  border-radius: 8px; padding: 10px 14px;
-  font-size: .88rem; font-weight: 500; color: #bbf7d0 !important;
-  cursor: pointer; transition: all .15s;
-  display: flex; align-items: center;
+  background: rgba(255, 255, 255, 0.03) !important;
+  border: 1px solid rgba(255, 255, 255, 0.05) !important;
+  border-radius: 10px !important;
+  padding: 10px 16px !important;
+  font-size: .88rem !important;
+  font-weight: 500 !important;
+  color: #a7f3d0 !important;
+  cursor: pointer !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  display: flex !important;
+  align-items: center !important;
+  width: 100% !important;
 }
-[data-testid="stSidebar"] [data-testid="stRadio"] label:hover { background: rgba(255,255,255,.08); }
+[data-testid="stSidebar"] [data-testid="stRadio"] label:hover {
+  background: rgba(255, 255, 255, 0.09) !important;
+  color: #ffffff !important;
+  border-color: rgba(74, 222, 128, 0.35) !important;
+  transform: translateX(4px) !important;
+}
 [data-testid="stSidebar"] [data-testid="stRadio"] [aria-checked="true"] + label,
-[data-testid="stSidebar"] [data-testid="stRadio"] label[data-checked="true"] {
-  background: rgba(34,197,94,.22); color: #ffffff !important;
-  border-left: 3px solid #22c55e;
+[data-testid="stSidebar"] [data-testid="stRadio"] label[data-checked="true"],
+[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) {
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.32) 0%, rgba(21, 128, 61, 0.45) 100%) !important;
+  color: #ffffff !important;
   font-weight: 600 !important;
+  border: 1px solid rgba(74, 222, 128, 0.5) !important;
+  border-left: 4px solid #22c55e !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22) !important;
+  transform: translateX(2px) !important;
 }
-[data-testid="stSidebar"] [data-testid="stRadio"] [data-baseweb="radio"] > div:first-child { display: none; }
+[data-testid="stSidebar"] [data-testid="stRadio"] label p {
+  color: inherit !important;
+  font-size: inherit !important;
+  font-weight: inherit !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  letter-spacing: 0.01em !important;
+}
 
 /* Main content */
 .block-container {
@@ -178,13 +238,13 @@ button[aria-label="Open sidebar"] {
 
 /* Sidebar nav logo */
 .nav-logo {
-  padding: 24px 18px 16px;
-  border-bottom: 1px solid rgba(255,255,255,.1); margin-bottom: 8px;
+  padding: 24px 18px 18px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+  margin-bottom: 10px;
 }
-.nav-logo-name { font-size: 1.12rem; font-weight: 800; color: white; letter-spacing: -.01em; }
-.nav-logo-sub  { font-size: .68rem; color: #86efac; letter-spacing: .08em; font-weight: 600; margin-top: 2px; }
-.nav-section   { padding: 12px 18px 6px; font-size: .68rem; font-weight: 600; color: #4ade80; text-transform: uppercase; letter-spacing: .09em; }
-.nav-divider   { height: 1px; background: rgba(255,255,255,.1); margin: 12px 18px; }
+.nav-logo-name { font-size: 1.15rem; font-weight: 800; color: white; letter-spacing: -.02em; line-height: 1.25; }
+.nav-section   { padding: 10px 18px 6px; font-size: .67rem; font-weight: 700; color: #4ade80; text-transform: uppercase; letter-spacing: .12em; opacity: .9; }
+.nav-divider   { height: 1px; background: rgba(255,255,255,.08); margin: 12px 18px; }
 .upgrade-box   {
   margin: 14px 14px; padding: 14px 16px;
   background: linear-gradient(135deg, #15803d, #166534);
@@ -325,14 +385,13 @@ CHART_BASE = dict(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
 with st.sidebar:
     st.markdown("""
     <div class="nav-logo">
-      <div class="nav-logo-name">BDA Analytics</div>
-      <div class="nav-logo-sub">HADOOP POWERED</div>
+      <div class="nav-logo-name">Sales Analysis System</div>
     </div>
-    <div class="nav-section">Main Menu</div>
+    <div class="nav-section">Navigation</div>
     """, unsafe_allow_html=True)
 
     page = st.radio(
-        "nav",
+        "",
         ["Dashboard", "Products", "Orders", "Customers", "Analytics", "Settings"],
         label_visibility="collapsed",
     )
@@ -467,7 +526,7 @@ elif page == "Dashboard":
         st.info(f"Currently analyzing custom dataset: **{custom_name}** ({len(orders):,} records). To change or reset, open Settings.")
 
     st.markdown('<div class="page-title">Dashboard</div>', unsafe_allow_html=True)
-    st.markdown('<div class="page-sub">Welcome to E-Commerce Sales Analytics &mdash; powered by Apache Hadoop MapReduce</div>', unsafe_allow_html=True)
+    st.markdown('<div class="page-sub">Welcome to Sales Analysis System &mdash; powered by Apache Hadoop MapReduce</div>', unsafe_allow_html=True)
 
     # -- KPI Row --
     k1, k2, k3, k4 = st.columns(4, gap="medium")
